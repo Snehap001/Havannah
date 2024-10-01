@@ -1,0 +1,23 @@
+Approach:
+We implemented an enhanced MCTS for the Havannah game, incorporating several modifications to boost performance. In addition to UCB sampling, we integrated the RAVE (Rapid Action Value Estimation) method and applied a heuristic to calculate the scores of the nodes.
+
+Monte Carlo Tree Search (MCTS): A well-known algorithm for decision-making in game theory. It balances exploration (trying new moves) and exploitation (using known good moves) through the use of UCB.
+
+RAVE (Rapid Action Value Estimation): RAVE is a heuristic that speeds up MCTS by sharing statistics between different parts of the tree. Instead of only learning from the exact moves taken, RAVE also learns from other moves that were part of the same simulation, helping to generalize the results and reduce the computational effort.
+
+MCTS-RAVE:
+Algorithm- 
+- Begins with selecting the root node.
+- Expands the children of root node, simulate them and backpropagate the results.
+- Once all the children of root node are expanded, best child is selected using rave_ucb as the metric. The heuristic value is also added to the score of each node.
+- The algorithm now expands children of the best child selected and continues from step 2
+
+Heuristic:
+1. Neighbour-heuristic: The moves which are nearer to already marked nodes are more favourable compared to the moves which are further away. 
+2. Corner-edge: Selecting corner and edge have added advantage of resulting in a pattern formation.
+3. Win-selection and blocking: Those moves which would result in a pattern formation are given high priority and also any move which would block opponent's win is also given priority (less than former).
+4. For the blocking and selection we have also implemented a looahead which would see for moves for which some next move might result in a win. It would be a threat if the move is of the opponent and a winning strategy if the move is of the agent. In both cases the agent tries to capture the move.
+
+The heuristic value is : (win_sel_blk*corner*edge)/(1+distance)
+
+We have divided the time such that for the initial stages the agent takes 50 percent of the equally divided time so that it has more time to handle critical moves at the end.
