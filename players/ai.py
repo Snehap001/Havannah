@@ -4,6 +4,7 @@ import random
 import numpy as np
 import helper
 from typing import Tuple
+import copy
 
 class Node:
     def __init__(self,delta,board_state,player_id,parent=None):
@@ -15,6 +16,10 @@ class Node:
         self.action_player_id=player_id
         self.visits = 0
         self.wins = 0 
+        self.dim=len(board_state[0])/2
+        self.rave_wins = 0
+        self.rave_visits = 0
+        self.rave_weight=1
     def is_terminal(self):
         if(self.parent==None):
             return False
@@ -23,56 +28,178 @@ class Node:
         if(len(self.untried_actions)>0):
             return True
         return (len(self.children)==0)
+    def find_threat(self,id):
+        temp_board=np.copy(self.board_state)
+        x,y=self.delta
+        temp_board[x][y]=id
+        left_actions=np.argwhere(self.board_state==0).tolist()
+      
+        for x2,y2 in left_actions:
+            temp_board[x2][y2]=id
+       
+            win,str_val=helper.check_win(temp_board,(x2,y2),id)
+            if win:
+             
+                return True
+            temp_board[x2][y2]=0
+        return False
+
+
+    def calculate_distance_to_neighbors(self, action, neighbors):
+        """ Calculate the Manhattan or Euclidean distance from the action to all neighbors. """
+        x1, y1 = action
+        distances = [math.sqrt((x1 - x2)**2 + (y1 - y2)**2) for x2, y2 in neighbors]
+        return min(distances) if distances else float('inf')
+    def get_neighbor_heuristic(self):
+        neighbors=np.argwhere(self.board_state == self.action_player_id).tolist()
+        if not neighbors or self.delta is None:
+            return 0 
+        distance = self.calculate_distance_to_neighbors(self.delta, neighbors)
+        corner=helper.get_corner(self.delta,len(self.board_state[0]))
+
+        if corner==-1:
+            
+            corner=1
+        else:
+            corner=2
+        edge=helper.get_edge(self.delta,len(self.board_state[0]))
+        if edge==-1:
+            edge=1
+        else:
+            edge=2
+        x,y=self.delta
+        win_sel_blk=1
+    
+        temp_board=np.copy(self.board_state)
+
+        figure,str_val=helper.check_win(temp_board,self.delta,3-self.action_player_id)
+        
+        if figure:
+
+            win_sel_blk+=40
+        else:
+            win=self.find_threat(3-self.action_player_id)
+            if win:
+                win_sel_blk+=10
+
+        temp_board=np.copy(self.board_state)
+        temp_board[x][y]=self.action_player_id
+
+        figure,str_val=helper.check_win(temp_board,self.delta,self.action_player_id)        
+        if figure:
+            win_sel_blk+=30
+        else:
+            win=self.find_threat(self.action_player_id)
+            if win:
+                win_sel_blk+=5
+        return (win_sel_blk*corner*edge )/ ((1 + distance) )
+  
     def get_ucb(self):
+        
         exploitation=(self.wins)/(self.visits)
-        exploration=math.sqrt(2*(math.log(self.parent.visits))/self.visits)
-        return (exploitation+exploration)
+        exploration=1.41 *math.sqrt((math.log(self.parent.visits))/self.visits)
+        heuristic = self.get_neighbor_heuristic() 
+        
+        return (exploitation+exploration+heuristic)
+    def get_rave_ucb(self, R=100):
+        
+        if self.visits > 0:
+            exploitation = self.wins / self.visits
+        else:
+            exploitation = 0
+        exploration = 1.41 *math.sqrt( math.log(self.parent.visits) / self.visits) if self.visits > 0 else float('inf')
+        
+        # RAVE value
+        if self.rave_visits > 0:
+            rave_value = self.rave_wins / self.rave_visits
+        else:
+            rave_value = 0
+        
+        # Weighted RAVE UCB
+        alpha = R / (R + self.visits)
+        heuristic = self.get_neighbor_heuristic() 
+        value=(1 - alpha) * (exploitation + exploration) + (alpha * rave_value) + heuristic
+        return value
     def best_child(self):
-        return max(self.children, key=lambda child: child.get_ucb())
-    def backpropagate(self,win_player_id):
-        node=self
-        while(node is not None):
-            if(node.action_player_id==win_player_id):
-                node.wins+=1
-                node.visits+=1
-            else:
-                node.visits+=1
-            node=node.parent
+        return max(self.children, key=lambda child: child.get_rave_ucb())
+    def backpropagate(self,win_player_id,simulation_path):
+        node = self 
+        
+        while node is not None:
+            node.visits += 1
+            if node.action_player_id == win_player_id:
+                node.wins += 1
+            
+            # Update RAVE stats for all moves in this path
+            for move_node in simulation_path:
+                if move_node.action_player_id == win_player_id:
+                    move_node.rave_wins += 1
+                move_node.rave_visits += 1
+                
+            node = node.parent
 class MonteCarloTree:
     def __init__(self,root,player_id):
         self.root=root
         self.root_player_id=player_id
-        self.other_player_id=player_id+0.5
+        self.other_player_id=3-player_id
+      
+  
     def select(self):
         node=self.root
         while(not(node.is_leaf())):
             node=node.best_child()
+        
         return node
+    
+
     def simulate(self,child):
-        board_state=child.board_state
+        
+        board_state=np.copy(child.board_state)
+        
         player_id=child.action_player_id
         action=child.delta
+
+        path = [child]
+
+        prev_node=child
         if(player_id==self.root_player_id):
             prev_player_id=self.other_player_id
         else:
             prev_player_id=self.root_player_id
         while(True):
-            if(helper.check_win(board_state,action,prev_player_id)):
-                return prev_player_id
+            win_check,str_val=helper.check_win(board_state,action,prev_player_id)
+            if(win_check):
+            
+                return prev_player_id,path
             possible_actions=np.argwhere(board_state == 0).tolist()
             if(len(possible_actions) == 0):
-                return -1
+                return -1,path
             action=tuple(random.choice(possible_actions))
-            board_state[action]=player_id
+            new_node=Node(tuple(action),board_state,player_id,prev_node)
+            path.append(new_node)
+
+            prev_node=new_node
+            
+
+            x,y=action
+            board_state[x][y]=player_id
+            
+
             temp=player_id
             player_id=prev_player_id
             prev_player_id=temp
+       
+        
     def expand(self,leaf):
         if(len(leaf.untried_actions)>0):
+            
+                
             action= random.choice(leaf.untried_actions) 
+   
             leaf.untried_actions.remove(action)
-            board_state=leaf.board_state
-            board_state[action]=leaf.action_player_id
+            board_state=np.copy(leaf.board_state)
+            x,y=action
+            board_state[x][y]=leaf.action_player_id
             if(leaf.action_player_id==self.root_player_id):
                 player_id=self.other_player_id
             else:
@@ -86,6 +213,20 @@ class MonteCarloTree:
         root=self.root
         move=root.best_child()
         return move.delta
+def MCTS_sample(node:Node,tree:MonteCarloTree):
+
+    if len(node.untried_actions)==0:
+        child =tree.select()
+        return child
+        
+    else:
+        child=tree.expand(node)
+        winner,path=tree.simulate(child)
+        child.backpropagate(winner,path)
+        return node
+
+
+   
 class AIPlayer:
 
     def __init__(self, player_number: int, timer):
@@ -99,10 +240,12 @@ class AIPlayer:
             - a Timer object that can be used to fetch the remaining time for any player
             - Run `fetch_remaining_time(timer, player_number)` to fetch remaining time of a player
         """
+   
         self.player_number = player_number
         self.type = 'ai'
         self.player_string = 'Player {}: ai'.format(player_number)
         self.timer = timer
+    
 
     def get_move(self, state: np.array) -> Tuple[int, int]:
         """
@@ -121,20 +264,28 @@ class AIPlayer:
         Tuple[int, int]: action (coordinates of a board cell)
         """
         moves_remaining = (np.count_nonzero(state == 0))/2
+        total_moves=(np.count_nonzero(state != 3))/2
+        if moves_remaining>0.3*(total_moves):
+            time_percent=0.5
+        else: 
+            time_percent=1
+        
         root=Node(None,state,self.player_number,None)
         tree=MonteCarloTree(root,self.player_number)
         # Do the rest of your implementation here
         time_is_remaining=True
-        time_per_move=(helper.fetch_remaining_time(self.timer,self.player_number))/moves_remaining
+
+        time_per_move=(helper.fetch_remaining_time(self.timer,self.player_number))*(time_percent/moves_remaining)
+        
         start_time = time.time()
+        leaf=root
+        print(time_per_move)
         while(time_is_remaining):
 
-            leaf=tree.select()
-            child=tree.expand(leaf)
-            winner=tree.simulate(child)
-            child.backpropagate(winner)
+            leaf=MCTS_sample(leaf,tree)
+            
 
             elapsed_time = time.time() - start_time
-            time_is_remaining= (elapsed_time >= time_per_move)
-        
+            time_is_remaining= (elapsed_time <= time_per_move)
+
         return tree.get_next_move()
