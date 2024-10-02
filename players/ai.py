@@ -4,7 +4,7 @@ import random
 import numpy as np
 import helper
 from typing import Tuple
-import copy
+
 
 class Node:
     def __init__(self,delta,board_state,player_id,parent=None):
@@ -49,24 +49,18 @@ class Node:
         """ Calculate the Manhattan or Euclidean distance from the action to all neighbors. """
         x1, y1 = action
         distances = [math.sqrt((x1 - x2)**2 + (y1 - y2)**2) for x2, y2 in neighbors]
-        return min(distances) if distances else float('inf')
+        distances.sort()
+        sum_distances=0
+        for i in range(min(3,len(distances))):
+            sum_distances+=distances[i]
+        return sum_distances 
+     
     def get_neighbor_heuristic(self):
         neighbors=np.argwhere(self.board_state == self.action_player_id).tolist()
         if not neighbors or self.delta is None:
             return 0 
         distance = self.calculate_distance_to_neighbors(self.delta, neighbors)
-        corner=helper.get_corner(self.delta,len(self.board_state[0]))
-
-        if corner==-1:
-            
-            corner=1
-        else:
-            corner=2
-        edge=helper.get_edge(self.delta,len(self.board_state[0]))
-        if edge==-1:
-            edge=1
-        else:
-            edge=2
+        
         x,y=self.delta
         win_sel_blk=1
     
@@ -80,7 +74,7 @@ class Node:
         else:
             win=self.find_threat(3-self.action_player_id)
             if win:
-                win_sel_blk+=10
+                win_sel_blk+=5
 
         temp_board=np.copy(self.board_state)
         temp_board[x][y]=self.action_player_id
@@ -91,13 +85,13 @@ class Node:
         else:
             win=self.find_threat(self.action_player_id)
             if win:
-                win_sel_blk+=5
-        return (win_sel_blk*corner*edge )/ ((1 + distance) )
+                win_sel_blk+=3
+        return (win_sel_blk)/ ((1 + distance) )
   
     def get_ucb(self):
         
         exploitation=(self.wins)/(self.visits)
-        exploration=1.41 *math.sqrt((math.log(self.parent.visits))/self.visits)
+        exploration=math.sqrt(2*(math.log(self.parent.visits))/self.visits)
         heuristic = self.get_neighbor_heuristic() 
         
         return (exploitation+exploration+heuristic)
@@ -107,7 +101,7 @@ class Node:
             exploitation = self.wins / self.visits
         else:
             exploitation = 0
-        exploration = 1.41 *math.sqrt( math.log(self.parent.visits) / self.visits) if self.visits > 0 else float('inf')
+        exploration = math.sqrt( 2*math.log(self.parent.visits) / self.visits) if self.visits > 0 else float('inf')
         
         # RAVE value
         if self.rave_visits > 0:
@@ -167,6 +161,7 @@ class MonteCarloTree:
         else:
             prev_player_id=self.root_player_id
         while(True):
+        
             win_check,str_val=helper.check_win(board_state,action,prev_player_id)
             if(win_check):
             
@@ -174,8 +169,18 @@ class MonteCarloTree:
             possible_actions=np.argwhere(board_state == 0).tolist()
             if(len(possible_actions) == 0):
                 return -1,path
+            min_dist=float('inf')
             action=tuple(random.choice(possible_actions))
-            new_node=Node(tuple(action),board_state,player_id,prev_node)
+            for any_action in possible_actions:
+                neighbors=np.argwhere(board_state == player_id).tolist()
+                heuristic=prev_node.calculate_distance_to_neighbors(any_action,neighbors)
+                if heuristic<min_dist:
+                    action=tuple(any_action)
+
+
+
+            
+            new_node=Node(action,board_state,player_id,prev_node)
             path.append(new_node)
 
             prev_node=new_node
@@ -212,7 +217,9 @@ class MonteCarloTree:
     def get_next_move(self):
         root=self.root
         move=root.best_child()
-        return move.delta
+        x,y=move.delta
+       
+        return tuple([int(x),int(y)])
 def MCTS_sample(node:Node,tree:MonteCarloTree):
 
     if len(node.untried_actions)==0:
@@ -279,7 +286,6 @@ class AIPlayer:
         
         start_time = time.time()
         leaf=root
-        print(time_per_move)
         while(time_is_remaining):
 
             leaf=MCTS_sample(leaf,tree)
@@ -287,5 +293,13 @@ class AIPlayer:
 
             elapsed_time = time.time() - start_time
             time_is_remaining= (elapsed_time <= time_per_move)
-
-        return tree.get_next_move()
+        output=tree.get_next_move()
+        print(type(output))
+        for i in output:
+            print(type(i))
+        if isinstance(output, tuple) and all(isinstance(i, int) for i in output):
+            print("It is a tuple of integers")  # Output: It is a tuple of integers
+        else:
+            print("The tuple does not contain only integers")
+        print(output)
+        return output
